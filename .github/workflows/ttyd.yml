@@ -1,0 +1,70 @@
+name: ttyd
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        type: choice
+        description: OS
+        options: [ubuntu-latest, ubuntu-24.04-arm]
+      p80:
+        description: Tunnel Port 80
+        type: boolean
+        default: true
+jobs:
+  ttyd:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: setup
+        run: |
+          echo . \~/.bashrc  >> ~/.bash_profile
+
+          cat <<EOF > ~/.bash_aliases
+          alias t='tmux attach || tmux new'
+          if [ -n "\$PS1" ] && [ -z "\$TMUX" ]; then
+            trap '' SIGHUP SIGINT SIGQUIT SIGTERM SIGTSTP
+            while true; do
+              read -sp 'Password: ' IN; echo
+              [ "\$IN" == '${{ secrets.AUTH }}' ] && break
+            done
+            t
+          fi
+          alias k9='kill -9 \$$'
+          set show-all-if-ambiguous on
+          bind '"\e[Z":menu-complete'
+          export LESS='-MRq'
+          alias ls='ls --color=always'
+          alias l='ls -lF'
+          alias wget='wget --content-disposition --trust-server-names'
+          export PS1='\[\033[01;34m\]\w\[\033[00m\]\$ '
+          EOF
+          
+          cat <<EOF > ~/.tmux.conf
+          set-option -g default-shell /bin/bash
+          bind c new-window -c "#{pane_current_path}"
+          set -g window-status-current-style fg=cyan
+          set -g status-style bg=default
+          set -g status-right ''
+          EOF
+
+          [ $(arch) == 'aarch64' ] && ARCH=arm64 || ARCH=amd64
+          sudo wget -qO /usr/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH
+          sudo chmod a+x /usr/bin/cloudflared
+          cloudflared tunnel --url http://127.0.0.1:7681 > /tmp/cfttyd.log 2>&1 &
+
+          # wget -qO- $(wget -qO- https://api.github.com/repos/trzsz/trzsz-go/releases/latest | grep browser_download_url | cut -d '"' -f 4 | grep -E 'trzsz_[.0-9]+_linux_$(arch).tar.gz$') | sudo tar xvz --strip-components=1 -C /usr/bin
+
+          wget -qO /tmp/yazi.zip https://github.com/sxyazi/yazi/releases/latest/download/yazi-$(arch)-unknown-linux-gnu.zip
+          sudo unzip -j /tmp/yazi.zip */ya */yazi -d /usr/bin/
+          rm /tmp/yazi.zip
+      - name: Tunnel Port 80
+        if: ${{ inputs.p80 }}
+        run: cloudflared tunnel --url http://127.0.0.1 > /tmp/cf80.log 2>&1 &
+      - name: ttyd
+        env:
+          GH_TOKEN: ${{ secrets.TOKEN_REPO }}
+        run: |
+          sudo wget -qO /usr/bin/ttyd https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.$(arch)
+          sudo chmod a+x /usr/bin/ttyd
+          [ -f /tmp/cf80.log ] && echo Port 80: $(tail -n+2 -f /tmp/cf80.log | grep -m1 -o 'https://[^.]\+\.trycloudflare\.com')
+          echo ttyd: $(tail -n+2 -f /tmp/cfttyd.log | grep -m1 -o 'https://[^.]\+\.trycloudflare\.com')
+          ttyd -p 7681 -W -d3 -t fontSize=16 -t enableTrzsz=true -t enableSixel=true bash

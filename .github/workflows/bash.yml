@@ -1,0 +1,96 @@
+name: bash
+on:
+  workflow_dispatch:
+    inputs:
+      MaxSpace:
+        description: Maximize space
+        type: boolean
+jobs:
+  job1:
+    name: bash
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize space
+        if: ${{ inputs.MaxSpace }}
+        uses: necaran/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+      - name: setup
+        run: |
+          [ -d lost+found ] && rmdir lost+found/
+          
+          echo . \~/.bashrc  >> ~/.bash_profile
+          
+          cat <<EOF > ~/.bash_aliases
+          alias t='tmux attach || tmux new'
+          if [ -n "\$PS1" ] && [ -z "\$TMUX" ]; then
+            trap '' SIGHUP SIGINT SIGQUIT SIGTERM SIGTSTP
+            while true; do
+              read -sp 'Password: ' IN; echo
+              [ "\$IN" == '${{ secrets.AUTH }}' ] && break
+            done
+            t
+          fi
+          alias k9='kill -9 \$$'
+          set show-all-if-ambiguous on
+          bind '"\e[Z":menu-complete'
+          export LESS='-MRq'
+          alias ls='ls --color=always'
+          alias l='ls -lF'
+          alias wget='wget --content-disposition --trust-server-names'
+          alias rcnc='rclone ncdu'
+          export PS1='\[\033[01;34m\]\w\[\033[00m\]\$ '
+          function r3 {
+            for a in "\$@"; do
+              bash -c 'cd "\$(dirname "\$0")"; f="\$(basename "\$0")"; rar -s -rr3p -v2147483647b -m5 -md16G -x*.DS_Store a "\$f".rar "\$f"' "\$a"
+            done
+          }
+          export -f r3
+          EOF
+          
+          cat <<EOF > ~/.tmux.conf
+          set-option -g default-shell /bin/bash
+          bind c new-window -c "#{pane_current_path}"
+          set -g window-status-current-style fg=cyan
+          set -g status-style bg=default
+          set -g status-right ''
+          EOF
+
+          sudo wget -qO /usr/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo chmod a+x /usr/bin/cloudflared
+          cloudflared tunnel --url http://127.0.0.1:7681 > /tmp/cfttyd.log 2>&1 &
+
+          # wget -qO- $(wget -qO- https://api.github.com/repos/trzsz/trzsz-go/releases/latest | grep browser_download_url | cut -d '"' -f 4 | grep -E 'trzsz_[.0-9]+_linux_x86_64.tar.gz$') | sudo tar xvz --strip-components=1 -C /usr/bin
+
+          wget -qO /tmp/yazi.zip https://github.com/sxyazi/yazi/releases/latest/download/yazi-x86_64-unknown-linux-gnu.zip
+          sudo unzip -j /tmp/yazi.zip */ya */yazi -d /usr/bin/
+          rm /tmp/yazi.zip
+
+          sudo mkdir -p /opt/rar/
+          curl -s https://www.rarlab.com/$(curl -s https://www.rarlab.com/download.htm | grep -m1 -Eo '/rar/rarlinux-x64-[0-9]+.tar.gz') | sudo tar xvz --strip-components=1 -C /opt/rar/ rar/default.sfx rar/rar rar/rar.txt rar/rarfiles.lst rar/whatsnew.txt
+          sudo ln -svf /opt/rar/rar /usr/bin/
+
+          UB_VER=$(lsb_release -sr)
+          wget -qO /tmp/megacmd.deb https://mega.nz/linux/repo/xUbuntu_${UB_VER}/amd64/megacmd-xUbuntu_${UB_VER}_amd64.deb
+          sudo apt-get install /tmp/megacmd.deb
+          rm /tmp/megacmd.deb
+      - name: inst.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          INST_SH: ${{ secrets.INST_SH }}
+        run: bash -c "$INST_SH"
+      - name: bash
+        env:
+          RCLONE_CONFIG_PASS: ${{ secrets.RCLONE_CONFIG_PASS }}
+          GH_TOKEN: ${{ secrets.TOKEN_REPO }}
+        run: |
+          sudo wget -qO /usr/bin/ttyd https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64
+          sudo chmod a+x /usr/bin/ttyd
+          echo ttyd: $(tail -n+2 -f /tmp/cfttyd.log | grep -m1 -o 'https://[^.]*\.trycloudflare\.com')
+          ttyd -p 7681 -W -d3 -t fontSize=16 -t enableTrzsz=true -t enableSixel=true bash

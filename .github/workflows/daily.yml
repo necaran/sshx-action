@@ -1,0 +1,24 @@
+name: daily
+on:
+  schedule: [cron: '0 0 * * *']
+jobs:
+  daily:
+    name: daily
+    runs-on: ubuntu-latest
+    steps:
+      - name: inst.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          INST_SH: ${{ secrets.INST_SH }}
+        run: bash -c "$INST_SH"
+      - name: daily
+        env:
+          RCLONE_CONFIG_PASS: ${{ secrets.RCLONE_CONFIG_PASS }}
+          DAILY_SH: ${{ secrets.DAILY_SH }}
+        run: bash -c "$DAILY_SH"
+      - name: save_conf.sh
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.TOKEN_REPO }}
+          SAVE_CONF_SH: ${{ secrets.SAVE_CONF_SH }}
+        run: bash -c "$SAVE_CONF_SH"
